@@ -14,13 +14,6 @@ class UIController {
         this.bubbleCurrentY = 0;
         this.bubbleTargetX = 0;
         this.bubbleTargetY = 0;
-
-        // 字幕位置调整
-        this.isAdjustingSubtitle = false;
-        this.isDraggingSubtitle = false;
-        this.subtitleScale = 1.0;
-        this._subtitleCenterX = null;
-        this._subtitleCenterY = null;
     }
 
     // 初始化UI控制
@@ -31,10 +24,49 @@ class UIController {
 
     // 设置鼠标穿透
     setupMouseIgnore() {
-        const updateMouseIgnore = () => {
-            if (!global.currentModel) return;
-            if (this.isAdjustingSubtitle) return;
+        let isOverUI = false;
 
+        const updateMouseIgnore = (event) => {
+            if (!global.currentModel) return;
+
+            // 使用 DOM 鼠标坐标，不是 PixiJS 坐标
+            const mouseX = event.clientX;
+            const mouseY = event.clientY;
+
+            // 检查齿轮图标
+            const quickSettings = document.getElementById('quick-settings');
+            if (quickSettings) {
+                const rect = quickSettings.getBoundingClientRect();
+                if (mouseX >= rect.left && mouseX <= rect.right && mouseY >= rect.top && mouseY <= rect.bottom) {
+                    if (!isOverUI) {
+                        logToTerminal('info', `🖱️ 鼠标进入齿轮区域 (${mouseX.toFixed(0)}, ${mouseY.toFixed(0)})，设置 ignore=false`);
+                        isOverUI = true;
+                    }
+                    ipcRenderer.send('set-ignore-mouse-events', { ignore: false });
+                    return;
+                }
+            }
+
+            // 检查聊天框
+            const chatContainer = document.getElementById('text-chat-container');
+            if (chatContainer) {
+                const rect = chatContainer.getBoundingClientRect();
+                if (mouseX >= rect.left && mouseX <= rect.right && mouseY >= rect.top && mouseY <= rect.bottom) {
+                    if (!isOverUI) {
+                        isOverUI = true;
+                    }
+                    ipcRenderer.send('set-ignore-mouse-events', { ignore: false });
+                    return;
+                }
+            }
+
+            // 离开 UI 区域
+            if (isOverUI) {
+                logToTerminal('info', `🖱️ 鼠标离开 UI 区域，恢复默认逻辑`);
+                isOverUI = false;
+            }
+
+            // 默认逻辑：检查是否在模型上
             const shouldIgnore = !global.currentModel.containsPoint(
                 global.pixiApp.renderer.plugins.interaction.mouse.global
             );
@@ -97,7 +129,9 @@ class UIController {
             // 始终定位到主屏右下角 (相对于窗口左侧)
             // 350是对话框宽度，20是右边距
             const rightPos = primaryLeftOffset + primaryDisplay.bounds.width - 350 - 20;
-            
+
+            logToTerminal('info', `📍 复杂定位计算: primaryDisplay.bounds.x=${primaryDisplay.bounds.x}, winX=${winX}, primaryDisplay.bounds.width=${primaryDisplay.bounds.width}, 计算得 rightPos=${rightPos}`);
+
             textChatContainer.style.setProperty('left', rightPos + 'px', 'important');
             textChatContainer.style.setProperty('right', 'auto', 'important');
             textChatContainer.style.setProperty('bottom', (primaryBottomOffset + 50) + 'px', 'important');
@@ -178,7 +212,6 @@ class UIController {
 
         subtitleText.textContent = text;
         container.style.display = 'block';
-        this.applySubtitlePosition();
         container.scrollTop = container.scrollHeight;
 
         // 如果指定了持续时间，设置自动隐藏
@@ -450,12 +483,17 @@ class UIController {
     // 设置聊天框可见性
     setupChatBoxVisibility(ttsEnabled, asrEnabled) {
         const textChatContainer = document.getElementById('text-chat-container');
-        if (!textChatContainer) return false;
+        if (!textChatContainer) {
+            logToTerminal('error', '❌ 找不到 text-chat-container 元素！');
+            return false;
+        }
 
         // 根据配置设置对话框显示状态
         const shouldShowChatBox = this.config.ui && this.config.ui.hasOwnProperty('show_chat_box')
             ? this.config.ui.show_chat_box
             : true;
+
+        logToTerminal('info', `🖼️ 聊天框应该${shouldShowChatBox ? '显示' : '隐藏'}，show_chat_box=${this.config.ui?.show_chat_box}`);
 
         if (shouldShowChatBox) {
             textChatContainer.style.setProperty('display', 'block', 'important');
@@ -475,6 +513,8 @@ class UIController {
         // 调试：确保对话框在可见范围内
         setTimeout(() => {
             const computedStyle = window.getComputedStyle(textChatContainer);
+            const rect = textChatContainer.getBoundingClientRect();
+            logToTerminal('info', `🖼️ 聊天框位置: left=${computedStyle.left}, bottom=${computedStyle.bottom}, width=${rect.width}, height=${rect.height}`);
             console.log('对话框调试信息:', {
                 display: computedStyle.display,
                 position: computedStyle.position,
@@ -566,7 +606,29 @@ class UIController {
         const items = document.getElementById('quick-settings-items');
         const toggleModeBtn = document.getElementById('btn-toggle-mode');
         const toggleChatBtn = document.getElementById('btn-toggle-chat');
-        if (!gear || !items) return;
+
+        logToTerminal('info', `⚙️ 初始化快捷面板: gear=${!!gear}, items=${!!items}, toggleMode=${!!toggleModeBtn}, toggleChat=${!!toggleChatBtn}`);
+
+        if (!gear || !items) {
+            logToTerminal('error', '❌ 找不到快捷面板元素！');
+            return;
+        }
+
+        // 调试：输出齿轮图标的位置和样式
+        setTimeout(() => {
+            const quickSettings = document.getElementById('quick-settings');
+            const gearRect = gear.getBoundingClientRect();
+            const gearStyle = window.getComputedStyle(gear);
+            const parentStyle = window.getComputedStyle(quickSettings);
+            logToTerminal('info', `⚙️ 父容器样式: zIndex=${parentStyle.zIndex}, pointerEvents=${parentStyle.pointerEvents}`);
+            logToTerminal('info', `⚙️ 齿轮位置: left=${gearRect.left}, top=${gearRect.top}, width=${gearRect.width}, height=${gearRect.height}`);
+            logToTerminal('info', `⚙️ 齿轮样式: display=${gearStyle.display}, visibility=${gearStyle.visibility}, opacity=${gearStyle.opacity}, zIndex=${gearStyle.zIndex}, pointerEvents=${gearStyle.pointerEvents}`);
+
+            // 强制设置 z-index
+            quickSettings.style.zIndex = '10001';
+            gear.style.zIndex = '10002';
+            logToTerminal('info', `⚙️ 已强制设置 z-index: 父容器=10001, 齿轮=10002`);
+        }, 1000);
 
         let panelOpen = false;
 
@@ -581,8 +643,27 @@ class UIController {
         gear.addEventListener('click', (e) => {
             e.stopPropagation();
             panelOpen = !panelOpen;
+            logToTerminal('info', `⚙️ 齿轮点击: panelOpen=${panelOpen}`);
             items.classList.toggle('expanded', panelOpen);
             gear.classList.toggle('open', panelOpen);
+        });
+
+        // 测试：添加鼠标移入事件来验证事件监听是否工作
+        gear.addEventListener('mouseenter', () => {
+            logToTerminal('info', `⚙️ 鼠标移入齿轮`);
+        });
+
+        gear.addEventListener('mouseleave', () => {
+            logToTerminal('info', `⚙️ 鼠标离开齿轮`);
+        });
+
+        // 诊断点击问题
+        gear.addEventListener('mousedown', (e) => {
+            logToTerminal('info', `⚙️ mousedown 事件触发`);
+        });
+
+        gear.addEventListener('mouseup', (e) => {
+            logToTerminal('info', `⚙️ mouseup 事件触发`);
         });
 
         document.addEventListener('click', (e) => {
@@ -687,162 +768,6 @@ class UIController {
             // 注意：这里不能直接停止，因为可能还有工具气泡。
             // 简单起见，只要有任何气泡显示，就保持追踪。
             // 现有的 stopBubbleTracking 逻辑可能需要调整，或者我们暂时保持它运行。
-        }
-    }
-
-    // ========== 字幕位置调整 ==========
-
-    // 进入调整模式
-    enterSubtitleAdjustMode() {
-        if (this.isAdjustingSubtitle) return; // 防止重复进入导致事件重复绑定
-        const c = document.getElementById('subtitle-container');
-        const t = document.getElementById('subtitle-text');
-        if (!c || !t) return;
-
-        this.isAdjustingSubtitle = true;
-        this._savedText = t.textContent;
-        this._savedDisplay = c.style.display;
-        t.textContent = '1.拖动或滚轮缩放调整\n2.复位皮套按钮复位';
-
-        // 加载已有位置或取当前中心点
-        const pos = this.config?.ui?.subtitle_position;
-        if (pos?.centerX != null) {
-            this._subtitleCenterX = pos.centerX;
-            this._subtitleCenterY = pos.centerY;
-            if (pos.scale != null) this.subtitleScale = pos.scale;
-        } else {
-            c.style.display = 'block'; c.offsetHeight;
-            const r = c.getBoundingClientRect();
-            this._subtitleCenterX = r.left + r.width / 2;
-            this._subtitleCenterY = r.top + r.height / 2;
-        }
-
-        Object.assign(c.style, {
-            bottom: 'auto', left: `${this._subtitleCenterX}px`, top: `${this._subtitleCenterY}px`,
-            transform: `translate(-50%, -50%) scale(${this.subtitleScale})`, transformOrigin: 'center center'
-        });
-        c.classList.add('subtitle-adjusting');
-
-        // 创建遮罩
-        let overlay = document.getElementById('subtitle-adjust-overlay');
-        if (!overlay) {
-            overlay = document.createElement('div');
-            overlay.id = 'subtitle-adjust-overlay';
-            overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:9998;background:transparent;cursor:grab;';
-            document.body.appendChild(overlay);
-        }
-
-        // 绑定事件
-        this._adjustCleanup = [];
-
-        const onKey = (e) => { if (e.key === 'Escape') this.exitSubtitleAdjustMode(); };
-        document.addEventListener('keydown', onKey);
-        this._adjustCleanup.push(() => document.removeEventListener('keydown', onKey));
-
-        overlay.addEventListener('mouseenter', () =>
-            ipcRenderer.send('set-ignore-mouse-events', { ignore: false, options: { forward: false } }));
-
-        // 拖拽
-        const onDragStart = (e) => {
-            if (e.target.id === 'subtitle-confirm-btn') return;
-            e.preventDefault(); e.stopPropagation();
-            this.isDraggingSubtitle = true; overlay.style.cursor = 'grabbing';
-            const sx = e.clientX, sy = e.clientY, scx = this._subtitleCenterX, scy = this._subtitleCenterY;
-            const onMove = (ev) => {
-                if (!this.isDraggingSubtitle) return;
-                ev.preventDefault();
-                c.style.left = `${this._subtitleCenterX = scx + ev.clientX - sx}px`;
-                c.style.top = `${this._subtitleCenterY = scy + ev.clientY - sy}px`;
-            };
-            const onUp = () => {
-                this.isDraggingSubtitle = false; overlay.style.cursor = 'grab';
-                document.removeEventListener('mousemove', onMove);
-                document.removeEventListener('mouseup', onUp);
-            };
-            document.addEventListener('mousemove', onMove);
-            document.addEventListener('mouseup', onUp);
-        };
-        overlay.addEventListener('mousedown', onDragStart);
-        this._adjustCleanup.push(() => overlay.removeEventListener('mousedown', onDragStart));
-
-        // 滚轮缩放
-        const onWheel = (e) => {
-            e.preventDefault(); e.stopPropagation();
-            this.subtitleScale = Math.max(0.3, Math.min(3.0, this.subtitleScale + (e.deltaY > 0 ? -0.05 : 0.05)));
-            c.style.transform = `translate(-50%, -50%) scale(${this.subtitleScale})`;
-        };
-        overlay.addEventListener('wheel', onWheel, { passive: false });
-        this._adjustCleanup.push(() => overlay.removeEventListener('wheel', onWheel));
-
-        // 确认按钮
-        const confirmBtn = document.getElementById('subtitle-confirm-btn');
-        if (confirmBtn) {
-            const onConfirm = (e) => { e.stopPropagation(); e.preventDefault(); this.exitSubtitleAdjustMode(); };
-            confirmBtn.addEventListener('click', onConfirm);
-            this._adjustCleanup.push(() => confirmBtn.removeEventListener('click', onConfirm));
-        }
-
-        ipcRenderer.send('set-ignore-mouse-events', { ignore: false, options: { forward: false } });
-    }
-
-    // 退出调整模式
-    exitSubtitleAdjustMode() {
-        const c = document.getElementById('subtitle-container');
-        if (!c) return;
-
-        // 保存位置到内存
-        if (this.config?.ui) {
-            this.config.ui.subtitle_position = {
-                centerX: this._subtitleCenterX, centerY: this._subtitleCenterY, scale: this.subtitleScale
-            };
-        }
-
-        c.classList.remove('subtitle-adjusting');
-        const t = document.getElementById('subtitle-text');
-        if (t) t.textContent = this._savedText || '';
-        if (!this._savedText) c.style.display = this._savedDisplay || 'none';
-
-        // 执行所有清理回调
-        this._adjustCleanup?.forEach(fn => fn());
-        this._adjustCleanup = null;
-        document.getElementById('subtitle-adjust-overlay')?.remove();
-
-        this.isAdjustingSubtitle = this.isDraggingSubtitle = false;
-        ipcRenderer.send('set-ignore-mouse-events', { ignore: true, options: { forward: true } });
-    }
-
-    // 应用保存的字幕位置
-    applySubtitlePosition() {
-        const c = document.getElementById('subtitle-container');
-        if (!c || this.isAdjustingSubtitle) return;
-        const pos = this.config?.ui?.subtitle_position;
-        if (pos?.centerX != null) {
-            Object.assign(c.style, {
-                left: `${pos.centerX}px`, top: `${pos.centerY}px`, bottom: 'auto',
-                transform: `translate(-50%, -50%) scale(${pos.scale || 1})`, transformOrigin: 'center center'
-            });
-        }
-    }
-
-    // 复位字幕到 CSS 默认位置
-    resetSubtitlePosition() {
-        const c = document.getElementById('subtitle-container');
-        if (!c) return;
-
-        if (this.config?.ui) this.config.ui.subtitle_position = null;
-        this._subtitleCenterX = null;
-        this._subtitleCenterY = null;
-        this.subtitleScale = 1;
-
-        if (this.isAdjustingSubtitle) {
-            const tx = window.innerWidth * 0.7, ty = window.innerHeight - 80;
-            this._subtitleCenterX = tx; this._subtitleCenterY = ty;
-            Object.assign(c.style, {
-                left: `${tx}px`, top: `${ty}px`,
-                transform: 'translate(-50%, -50%) scale(1)', transformOrigin: 'center center'
-            });
-        } else {
-            Object.assign(c.style, { left: '', top: '', bottom: '', transform: '', transformOrigin: '' });
         }
     }
 }
