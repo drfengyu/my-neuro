@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🎵 AI 音乐控制面板</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Microsoft YaHei', 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 40px;
+            max-width: 600px;
+            width: 100%;
+        }
+
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+            font-size: 32px;
+        }
+
+        .control-group {
+            margin-bottom: 25px;
+        }
+
+        .control-group label {
+            display: block;
+            margin-bottom: 10px;
+            color: #555;
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .button-row {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        button {
+            flex: 1;
+            min-width: 120px;
+            padding: 15px 25px;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        .btn-play {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-stop {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+        }
+
+        .btn-refresh {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+        }
+
+        input[type="text"] {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #ddd;
+            border-radius: 10px;
+            font-size: 14px;
+            transition: border-color 0.3s ease;
+        }
+
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        select {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #ddd;
+            border-radius: 10px;
+            font-size: 14px;
+            background: white;
+            cursor: pointer;
+            transition: border-color 0.3s ease;
+        }
+
+        select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .status-box {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
+            margin-top: 25px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .status-box h3 {
+            margin-bottom: 10px;
+            color: #333;
+            font-size: 16px;
+        }
+
+        .status-content {
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 13px;
+            color: #555;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            color: #667eea;
+            font-weight: 600;
+            margin-top: 15px;
+        }
+
+        .loading.active {
+            display: block;
+        }
+
+        .song-info {
+            background: linear-gradient(135deg, #667eea15 0%, #764ba215 100%);
+            padding: 15px;
+            border-radius: 10px;
+            margin-top: 15px;
+        }
+
+        .song-info p {
+            margin: 5px 0;
+            color: #333;
+        }
+
+        .song-info strong {
+            color: #667eea;
+        }
+
+        .error {
+            color: #f5576c;
+            font-weight: 600;
+        }
+
+        .success {
+            color: #00c9a7;
+            font-weight: 600;
+        }
+
+        .divider {
+            height: 2px;
+            background: linear-gradient(90deg, transparent, #ddd, transparent);
+            margin: 25px 0;
+        }
+
+        .tip {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 12px 15px;
+            border-radius: 5px;
+            margin-top: 20px;
+            font-size: 13px;
+            color: #856404;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎵 AI 音乐控制面板</h1>
+
+        <!-- 快速控制 -->
+        <div class="control-group">
+            <label>🎲 快速控制</label>
+            <div class="button-row">
+                <button class="btn-play" onclick="playRandom()">随机播放</button>
+                <button class="btn-stop" onclick="stopMusic()">停止播放</button>
+                <button class="btn-refresh" onclick="refreshSongList()">刷新歌单</button>
+            </div>
+        </div>
+
+        <div class="divider"></div>
+
+        <!-- 选择歌曲 -->
+        <div class="control-group">
+            <label>🎼 选择歌曲播放</label>
+            <select id="songSelect" onchange="updateSongInput()">
+                <option value="">-- 点击"刷新歌单"加载歌曲列表 --</option>
+            </select>
+            <div style="margin-top: 10px;">
+                <button class="btn-play" onclick="playSelected()" style="width: 100%;">播放选中歌曲</button>
+            </div>
+        </div>
+
+        <div class="divider"></div>
+
+        <!-- 手动输入 -->
+        <div class="control-group">
+            <label>✏️ 手动输入歌曲文件名</label>
+            <input type="text" id="songInput" placeholder="例如：告白气球-Acc.mp3">
+            <div style="margin-top: 10px;">
+                <button class="btn-play" onclick="playSpecific()" style="width: 100%;">播放</button>
+            </div>
+        </div>
+
+        <!-- 加载提示 -->
+        <div class="loading" id="loading">⏳ 处理中...</div>
+
+        <!-- 状态显示 -->
+        <div class="status-box">
+            <h3>📊 状态信息</h3>
+            <div class="status-content" id="status">等待操作...</div>
+        </div>
+
+        <!-- 使用提示 -->
+        <div class="tip">
+            💡 <strong>提示</strong>：请确保 AI 程序已启动，音乐文件放在 <code>song-library/output/</code> 目录，文件名格式为 <code>歌曲名-Acc.mp3</code>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:3001/music';
+        let songList = [];
+
+        // 显示状态
+        function showStatus(message, isError = false) {
+            const statusEl = document.getElementById('status');
+            const timestamp = new Date().toLocaleTimeString();
+
+            if (typeof message === 'object') {
+                message = JSON.stringify(message, null, 2);
+            }
+
+            const className = isError ? 'error' : 'success';
+            statusEl.innerHTML = `[${timestamp}] <span class="${className}">${message}</span>`;
+        }
+
+        // 显示加载状态
+        function setLoading(loading) {
+            document.getElementById('loading').classList.toggle('active', loading);
+        }
+
+        // 播放随机歌曲
+        async function playRandom() {
+            try {
+                setLoading(true);
+                const response = await fetch(`${API_URL}?action=play_random`);
+                const result = await response.json();
+
+                if (result.success) {
+                    showStatus(`✅ 开始播放随机歌曲\n${formatMusicInfo(result.message)}`);
+                } else {
+                    showStatus(`❌ 播放失败: ${result.message}`, true);
+                }
+            } catch (error) {
+                showStatus(`❌ 连接失败: ${error.message}\n请确认程序已启动且端口 3001 可访问`, true);
+            } finally {
+                setLoading(false);
+            }
+        }
+
+        // 播放选中的歌曲
+        async function playSelected() {
+            const select = document.getElementById('songSelect');
+            const filename = select.value;
+
+            if (!filename) {
+                showStatus('❌ 请先选择一首歌曲', true);
+                return;
+            }
+
+            await playSpecificSong(filename);
+        }
+
+        // 播放指定歌曲（手动输入）
+        async function playSpecific() {
+            const input = document.getElementById('songInput');
+            const filename = input.value.trim();
+
+            if (!filename) {
+                showStatus('❌ 请输入歌曲文件名', true);
+                return;
+            }
+
+            await playSpecificSong(filename);
+        }
+
+        // 播放指定歌曲（核心函数）
+        async function playSpecificSong(filename) {
+            try {
+                setLoading(true);
+                const response = await fetch(`${API_URL}?action=play_specific&filename=${encodeURIComponent(filename)}`);
+                const result = await response.json();
+
+                if (result.success) {
+                    showStatus(`✅ 开始播放\n${formatMusicInfo(result.message)}`);
+                } else {
+                    showStatus(`❌ 播放失败: ${result.message}`, true);
+                }
+            } catch (error) {
+                showStatus(`❌ 连接失败: ${error.message}\n请确认程序已启动且端口 3001 可访问`, true);
+            } finally {
+                setLoading(false);
+            }
+        }
+
+        // 停止播放
+        async function stopMusic() {
+            try {
+                setLoading(true);
+                const response = await fetch(`${API_URL}?action=stop`);
+                const result = await response.json();
+
+                if (result.success) {
+                    showStatus('✅ 音乐已停止');
+                } else {
+                    showStatus(`❌ 停止失败: ${result.message}`, true);
+                }
+            } catch (error) {
+                showStatus(`❌ 连接失败: ${error.message}`, true);
+            } finally {
+                setLoading(false);
+            }
+        }
+
+        // 刷新歌单（通过尝试播放获取可用歌曲）
+        async function refreshSongList() {
+            showStatus('🔄 正在扫描音乐目录...');
+            setLoading(true);
+
+            // 注意：当前 API 不支持列出所有歌曲
+            // 这里提供一个提示，用户需要手动输入或通过其他方式获取歌单
+            showStatus('💡 当前版本需要手动输入歌曲文件名\n\n歌曲文件应位于:\nsong-library/output/\n\n文件格式:\n歌曲名-Acc.mp3 (伴奏)\n歌曲名-Vocal.mp3 (人声)');
+            setLoading(false);
+
+            // 可以在这里添加一些预设的歌曲示例
+            const select = document.getElementById('songSelect');
+            select.innerHTML = '<option value="">-- 请手动输入歌曲文件名 --</option>';
+        }
+
+        // 格式化音乐信息
+        function formatMusicInfo(info) {
+            if (typeof info === 'string') {
+                return info;
+            }
+
+            if (info.message) {
+                let output = info.message;
+
+                if (info.metadata) {
+                    const meta = info.metadata;
+                    output += '\n\n📀 歌曲信息:';
+                    if (meta.title) output += `\n  标题: ${meta.title}`;
+                    if (meta.artist) output += `\n  歌手: ${meta.artist}`;
+                    if (meta.duration) output += `\n  时长: ${Math.floor(meta.duration / 60)}:${(meta.duration % 60).toString().padStart(2, '0')}`;
+                    if (meta.lyrics) {
+                        const lyricsPreview = meta.lyrics.split('\n')[0];
+                        output += `\n  歌词: ${lyricsPreview}...`;
+                    }
+                }
+
+                return output;
+            }
+
+            return JSON.stringify(info, null, 2);
+        }
+
+        // 更新输入框（从下拉框选择）
+        function updateSongInput() {
+            const select = document.getElementById('songSelect');
+            const input = document.getElementById('songInput');
+            input.value = select.value;
+        }
+
+        // 页面加载完成
+        window.addEventListener('load', () => {
+            showStatus('✅ 控制面板已就绪\n\n请点击"随机播放"或输入歌曲文件名');
+        });
+
+        // 键盘快捷键
+        document.addEventListener('keydown', (e) => {
+            // Ctrl+Enter 播放
+            if (e.ctrlKey && e.key === 'Enter') {
+                e.preventDefault();
+                playSpecific();
+            }
+            // Ctrl+Space 随机播放
+            if (e.ctrlKey && e.key === ' ') {
+                e.preventDefault();
+                playRandom();
+            }
+            // Esc 停止
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                stopMusic();
+            }
+        });
+    </script>
+</body>
+</html>
