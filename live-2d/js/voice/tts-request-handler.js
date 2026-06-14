@@ -202,6 +202,7 @@ class TTSRequestHandler {
 
             if (this.punctuations.includes(char) && processedSegment.trim()) {
                 queue.push(processedSegment);
+                logToTerminal('info', `📝 分段推入队列: "${processedSegment.substring(0, 20)}...", 队列长度=${queue.length}`);
                 processedSegment = '';
             }
         }

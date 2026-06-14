@@ -6,6 +6,9 @@ const { ModelPathUpdater } = require('./js/model/model-path-updater')
 const { ShortcutManager } = require('./js/shortcut-manager')
 const screenshot = require('screenshot-desktop');
 
+// 禁用证书验证（某些 API 服务需要）
+app.commandLine.appendSwitch('ignore-certificate-errors')
+
 // 添加配置文件路径
 const configPath = path.join(app.getAppPath(), 'config.json');
 

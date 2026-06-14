@@ -255,8 +255,10 @@ class LLMHandler {
                         // 🔥 正常使用主模型 - 使用流式响应（提升响应速度）
                         _streamBuf = '';
                         if (iteration === 0) ttsProcessor.reset();
+                        logToTerminal('info', '🌊 开始流式请求...');
                         result = await llmClient.chatCompletion(messagesForAPI, allTools, true, (text) => {
                             if (iteration > 0) return;
+                            logToTerminal('info', `🌊 流式回调收到文本: ${text.substring(0, 20)}...`);
                             ttsProcessor.addStreamingText(text);
                         });
                     }
@@ -646,6 +648,8 @@ class LLMHandler {
 
                         // 🔥 不在这里播放TTS，统一在最后播放（参考旧版本的设计）
                         console.log('✅ 最终回复已获取');
+                        logToTerminal('info', `✅ 最终回复已获取，内容: ${finalResponseContent.substring(0, 50)}...`);
+                        logToTerminal('info', '🚨🚨🚨 重要标记：代码版本 V2.0 - 如果看到这条说明代码已更新 🚨🚨🚨');
 
                         // 只有真正执行了工具调用才输出统计信息
                         if (iteration > 0) {
@@ -696,6 +700,7 @@ class LLMHandler {
                 }
 
                 // 输出最终回复
+                logToTerminal('info', `🔍 检查点：到达"输出最终回复"代码块，finalResponseContent=${finalResponseContent ? '有内容' : '空'}`);
                 if (finalResponseContent) {
                     voiceChat.messages.push({ 'role': 'assistant', 'content': finalResponseContent });
 
@@ -705,9 +710,16 @@ class LLMHandler {
                     }
 
                     // ===== 保存对话历史 =====
-                    voiceChat.saveConversationHistory();
+                    try {
+                        voiceChat.saveConversationHistory();
+                        logToTerminal('info', '✅ 对话历史保存成功');
+                    } catch (saveError) {
+                        logToTerminal('warn', `⚠️ 对话历史保存失败: ${saveError.message}`);
+                        // 不阻止后续 TTS 播放
+                    }
                     // MemOS 保存由 memos 插件的 onLLMResponse 钩子处理
 
+                    logToTerminal('info', '🔍 准备播放 TTS...');
                     // 🎙️ 播放最终回复的TTS（统一在这里播放，参考旧版本的设计）
                     console.log('✅ 最终回复已处理完成，开始播放TTS');
 
@@ -717,25 +729,52 @@ class LLMHandler {
                     // 触发插件 onLLMResponse 钩子（插件可修改 responseObj.text，影响 TTS 内容）
                     const responseObj = { text: filteredFinalContent || finalResponseContent };
                     if (global.pluginManager) {
-                        await global.pluginManager.runLLMResponseHooks(responseObj).catch(() => {});
+                        logToTerminal('info', '🔌 触发 onLLMResponse 钩子...');
+                        try {
+                            await Promise.race([
+                                global.pluginManager.runLLMResponseHooks(responseObj),
+                                new Promise((_, reject) => setTimeout(() => reject(new Error('钩子超时')), 3000))
+                            ]);
+                            logToTerminal('info', '✅ onLLMResponse 钩子完成');
+                        } catch (e) {
+                            logToTerminal('warn', `⚠️ onLLMResponse 钩子失败: ${e.message}`);
+                        }
                     }
 
                     // 触发插件 onTTSStart 钩子
                     if (global.pluginManager) {
-                        await global.pluginManager.runTTSStartHooks(responseObj.text).catch(() => {});
+                        logToTerminal('info', '🔌 触发 onTTSStart 钩子...');
+                        try {
+                            await Promise.race([
+                                global.pluginManager.runTTSStartHooks(responseObj.text),
+                                new Promise((_, reject) => setTimeout(() => reject(new Error('钩子超时')), 3000))
+                            ]);
+                            logToTerminal('info', '✅ onTTSStart 钩子完成');
+                        } catch (e) {
+                            logToTerminal('warn', `⚠️ onTTSStart 钩子失败: ${e.message}`);
+                        }
                     }
+                    logToTerminal('info', '🔍 第753行后面，即将到达第754行');
 
+                    logToTerminal('info', '🔍 检查点：钩子完成后，准备执行 TTS 播放代码');
+                    logToTerminal('info', `🎵 开始播放 TTS，iteration=${iteration}`);
                     if (iteration === 0) {
+                        logToTerminal('info', '🎵 使用流式模式（iteration=0）');
                         // streaming already started - finalize
                         if (typeof ttsProcessor.finalizeStreamingText === 'function') {
+                            logToTerminal('info', `📊 TTS 状态检查：llmFullResponse长度=${ttsProcessor.llmFullResponse?.length || 0}, 队列长度=${ttsProcessor.textSegmentQueue?.length || 0}`);
                             ttsProcessor.finalizeStreamingText();
+                            logToTerminal('info', '✅ 调用了 finalizeStreamingText');
                         } else {
                             if (_streamBuf.trim()) ttsProcessor.textSegmentQueue.push(_streamBuf.trim());
                             _streamBuf = '';
+                            logToTerminal('info', '✅ 使用了备用流式逻辑');
                         }
                     } else {
+                        logToTerminal('info', '🎵 使用非流式模式（iteration>0）');
                         ttsProcessor.reset();
                         ttsProcessor.processTextToSpeech(responseObj.text);
+                        logToTerminal('info', '✅ 调用了 processTextToSpeech');
                     }
                 } else {
                     logToTerminal('error', '❌ 未获取到有效的AI回复');

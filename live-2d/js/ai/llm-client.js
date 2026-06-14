@@ -1,6 +1,7 @@
 // llm-client.js - 统一的LLM API客户端
 const { logToTerminal, handleAPIError } = require('../api-utils.js');
-const { sanitizeToolMessageSequence } = require('./tool-message-utils.js');
+const https = require('https');
+const http = require('http');
 
 /**
  * 统一的LLM客户端
@@ -30,7 +31,7 @@ class LLMClient {
         const requestBody = {
             model: this.model,
             messages: cleanedMessages,
-            stream: stream
+            stream: stream  // 🔥 修复：使用传入的 stream 参数，而不是硬编码 false
         };
         if (this.temperatureEnabled) {
             requestBody.temperature = this.temperature;
@@ -39,10 +40,9 @@ class LLMClient {
         // 添加工具列表(如果提供)
         if (tools && tools.length > 0) {
             requestBody.tools = tools;
+//            logToTerminal('info', `🔧 发送工具列表到LLM: ${tools.length}个工具`);
         } else {
-            // tools 为 null（视觉模型调用）或空数组（强制获取最终回复、未配置任何工具）
-            // 都是预期行为，仅记录 info 便于排查，不输出警告
-            logToTerminal('info', `本次调用未传递工具列表 (tools=${tools ? '[]' : 'null'})`);
+            logToTerminal('warn', `⚠️ 未发送工具列表到LLM (tools=${tools ? 'empty array' : 'null'})`);
         }
 
         logToTerminal('info', `已将内容发送给AI..`);
@@ -73,26 +73,116 @@ class LLMClient {
         }
 
         try {
-            const response = await fetch(`${this.apiUrl}/chat/completions`, {
+            const url = new URL(`${this.apiUrl}/chat/completions`);
+            const postData = JSON.stringify(requestBody);
+
+            const options = {
+                hostname: url.hostname,
+                port: url.port || (url.protocol === 'https:' ? 443 : 80),
+                path: url.pathname,
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${this.apiKey}`
+                    'Content-Length': Buffer.byteLength(postData),
+                    'Authorization': `Bearer ${this.apiKey}`,
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
                 },
-                body: JSON.stringify(requestBody)
+                timeout: 60000
+            };
+
+            const responseData = await new Promise((resolve, reject) => {
+                const protocol = url.protocol === 'https:' ? https : http;
+                const req = protocol.request(options, (res) => {
+                    let data = '';
+                    let fullContent = '';  // 累积的完整内容（用于流式）
+                    let buffer = '';       // SSE 数据缓冲区
+
+                    res.on('data', (chunk) => {
+                        data += chunk;
+
+                        // 🔥 如果是流式响应，逐块处理 SSE 数据
+                        if (stream && onChunk) {
+                            buffer += chunk;
+                            const lines = buffer.split('\n');
+
+                            // 保留最后一个可能不完整的行
+                            buffer = lines.pop() || '';
+
+                            for (const line of lines) {
+                                if (line.startsWith('data: ')) {
+                                    const jsonStr = line.substring(6).trim();
+                                    if (jsonStr === '[DONE]') continue;
+
+                                    try {
+                                        const parsed = JSON.parse(jsonStr);
+                                        const delta = parsed.choices?.[0]?.delta?.content;
+                                        if (delta) {
+                                            fullContent += delta;
+                                            onChunk(delta);  // 🔥 调用流式回调
+                                        }
+                                    } catch (e) {
+                                        // 忽略解析错误，继续处理下一行
+                                    }
+                                }
+                            }
+                        }
+                    });
+
+                    res.on('end', () => {
+                        logToTerminal('info', `🏁 HTTP 响应结束，statusCode=${res.statusCode}, stream=${stream}, fullContent长度=${fullContent.length}`);
+                        if (res.statusCode !== 200) {
+                            reject(new Error(`API返回错误: ${res.statusCode} - ${data}`));
+                        } else {
+                            try {
+                                // 🔥 流式模式：返回累积的完整内容
+                                if (stream && fullContent) {
+                                    logToTerminal('info', `✅ 流式响应完成，返回累积内容：${fullContent.substring(0, 50)}...`);
+                                    resolve({
+                                        choices: [{
+                                            message: {
+                                                role: 'assistant',
+                                                content: fullContent
+                                            }
+                                        }]
+                                    });
+                                    return;
+                                }
+
+                                // 🔥 非流式模式：处理可能的 SSE 格式响应
+                                let jsonData = data.trim();
+
+                                // 如果返回的是 SSE 格式（data: {...}），提取 JSON
+                                if (jsonData.startsWith('data: ')) {
+                                    // 提取第一行的 JSON（非流式应该只有一行）
+                                    const lines = jsonData.split('\n');
+                                    for (const line of lines) {
+                                        if (line.startsWith('data: ')) {
+                                            jsonData = line.substring(6).trim();
+                                            break;
+                                        }
+                                    }
+                                }
+
+                                resolve(JSON.parse(jsonData));
+                            } catch (e) {
+                                reject(new Error(`JSON解析失败: ${e.message}`));
+                            }
+                        }
+                    });
+                });
+
+                req.on('error', (error) => {
+                    reject(error);
+                });
+
+                req.on('timeout', () => {
+                    req.destroy();
+                    reject(new Error('请求超时'));
+                });
+
+                req.write(postData);
+                req.end();
             });
-
-            if (!response.ok) {
-                await handleAPIError(response);
-            }
-
-            // 🔥 流式响应处理
-            if (stream && onChunk) {
-                return await this._handleStreamResponse(response, onChunk);
-            }
-
-            // 非流式响应处理
-            const responseData = await response.json();
 
             // 验证响应格式
             this._validateResponse(responseData);
@@ -100,6 +190,9 @@ class LLMClient {
             logToTerminal('info', `AI回复中`);
 
             const message = responseData.choices[0].message;
+
+            // 🔥 调试：打印消息内容
+            logToTerminal('info', `✅ 收到AI回复: ${message.content ? message.content.substring(0, 50) : '[无内容]'}...`);
 
             // 🔥 处理 Qwen3 等模型的 reasoning_content 字段
             // 仅在没有 tool_calls 时才用 reasoning_content 替代空 content（Qwen3 推理模式）
@@ -132,6 +225,7 @@ class LLMClient {
             const isMultimodalError = error.message.toLowerCase().includes('multimodal') ||
                 error.message.toLowerCase().includes('不支持图片') ||
                 error.message.toLowerCase().includes('模型不支持图片');
+
             if (!isMultimodalError) {
                 logToTerminal('error', `LLM API调用失败: ${error.message}`);
             }
@@ -146,7 +240,7 @@ class LLMClient {
      * @returns {Array} 清理后的消息数组
      */
     _cleanMessagesForAPI(messages) {
-        const normalizedMessages = messages.map(msg => {
+        return messages.map(msg => {
             // 🔥 处理 assistant 消息的 content 为 null 的情况
             if (msg.role === 'assistant') {
                 // 如果有 tool_calls 但 content 为 null,设为空字符串
@@ -198,11 +292,6 @@ class LLMClient {
             // 其他消息保持原样
             return msg;
         });
-
-        // 🔥 发送前的最后一道防线：清理 assistant.tool_calls 与 tool 响应不配对的序列。
-        // 无论坏数据来自旧版本保存的对话历史、裁剪还是工具执行中断，
-        // 都保证发给 API 的序列合法，避免 "tool_calls must be followed by tool messages" 400 错误
-        return sanitizeToolMessageSequence(normalizedMessages);
     }
 
     /**

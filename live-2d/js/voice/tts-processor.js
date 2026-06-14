@@ -95,7 +95,9 @@ class EnhancedTextProcessor {
 
                 const genSnapshot = this.abortGeneration;
                 try {
+                    logToTerminal('info', `🎤 开始转换 TTS: "${segment.substring(0, 30)}..."`);
                     const audioData = await this.requestHandler.convertTextToSpeech(segment);
+                    logToTerminal('info', `🎤 TTS 转换${audioData ? '成功' : '失败'}`);
 
                     // 如果中止代数已变化，说明请求属于旧一轮，直接丢弃结果
                     if (genSnapshot !== this.abortGeneration) {
@@ -106,6 +108,7 @@ class EnhancedTextProcessor {
 
                     if (audioData) {
                         this.audioDataQueue.push({ audio: audioData, text: segment });
+                        logToTerminal('info', `✅ 音频已加入队列，队列长度=${this.audioDataQueue.length}`);
                     }else if (this.shouldStop) {
                         // 被主动打断（abort），不标记为不可用
                         return;
@@ -142,7 +145,9 @@ class EnhancedTextProcessor {
 
             if (this.audioDataQueue.length > 0 && !this.playbackEngine.getPlayingState()) {
                 const audioPackage = this.audioDataQueue.shift();
+                logToTerminal('info', `🔊 开始播放音频: "${audioPackage.text.substring(0, 30)}...", 剩余队列=${this.audioDataQueue.length}`);
                 const result = await this.playbackEngine.playAudio(audioPackage.audio, audioPackage.text);
+                logToTerminal('info', `✅ 音频播放完成, completed=${result.completed}`);
 
                 // 检查是否全部完成
                 if (result.completed && this.isAllComplete()) {
@@ -252,6 +257,9 @@ class EnhancedTextProcessor {
     addStreamingText(text) {
         if (this.shouldStop) return;
         this.llmFullResponse += text;
+
+        const { logToTerminal } = require('../api-utils');
+        logToTerminal('info', `🔊 addStreamingText 收到: "${text}", volcEnabled=${this.requestHandler.volcTtsEnabled}`);
 
         if (this.requestHandler.volcTtsEnabled) {
             // 字节流式路径：用 Promise 链保证 open → sendToken 严格串行
