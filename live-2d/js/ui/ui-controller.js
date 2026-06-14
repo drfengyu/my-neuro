@@ -141,11 +141,11 @@ class UIController {
             if (subtitleContainer) {
                 subtitleContainer.style.setProperty('position', 'fixed', 'important');
                 subtitleContainer.style.setProperty('bottom', (primaryBottomOffset + 20) + 'px', 'important');
-                // 字幕在主屏右下角距离屏幕右侧800px处开始显示，显示范围不超过400px/行
-                const subtitleLeft = primaryLeftOffset + primaryDisplay.bounds.width - 800;
+                // 字幕在主屏右下角距离屏幕右侧1000px处开始显示，显示范围不超过700px/行
+                const subtitleLeft = primaryLeftOffset + primaryDisplay.bounds.width - 1000;
                 subtitleContainer.style.setProperty('left', subtitleLeft + 'px', 'important');
-                subtitleContainer.style.setProperty('width', '400px', 'important');
-                subtitleContainer.style.setProperty('max-width', '400px', 'important');
+                subtitleContainer.style.setProperty('width', '700px', 'important');
+                subtitleContainer.style.setProperty('max-width', '700px', 'important');
                 subtitleContainer.style.setProperty('transform', 'none', 'important');
                 subtitleContainer.style.setProperty('display', 'block', 'important');
             }
