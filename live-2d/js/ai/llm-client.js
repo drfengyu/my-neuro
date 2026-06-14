@@ -14,6 +14,11 @@ class LLMClient {
         this.model = config.llm.model;
         this.temperature = config.llm.temperature || 1.0;  // 🔥 读取temperature配置，默认1.0
         this.temperatureEnabled = config.llm.temperature_enabled ?? false;
+
+        // RAG配置
+        this.ragEnabled = config.rag?.enabled || false;
+        this.ragUrl = config.rag?.url || 'http://127.0.0.1:8002';
+        this.ragTopK = config.rag?.top_k || 2;  // 默认检索2个最相关段落
     }
 
     /**
@@ -26,7 +31,35 @@ class LLMClient {
      */
     async chatCompletion(messages, tools = null, stream = false, onChunk = null) {
         // 🔥 清理消息格式,确保API兼容性
-        const cleanedMessages = this._cleanMessagesForAPI(messages);
+        let cleanedMessages = this._cleanMessagesForAPI(messages);
+
+        // 📚 RAG: 如果启用，查询知识库并添加相关记忆到系统消息
+        if (this.ragEnabled && cleanedMessages.length > 0) {
+            // 获取最后一条用户消息作为查询
+            const lastUserMessage = [...cleanedMessages].reverse().find(m => m.role === 'user');
+
+            if (lastUserMessage) {
+                const ragResults = await this.queryRAG(lastUserMessage.content);
+
+                if (ragResults.length > 0) {
+                    // 构建RAG上下文
+                    const ragContext = ragResults.map((passage, idx) =>
+                        `[记忆${idx + 1}] ${passage.content}`
+                    ).join('\n\n');
+
+                    // 将RAG上下文添加到系统消息中
+                    const ragSystemMessage = {
+                        role: 'system',
+                        content: `以下是从你的长期记忆中检索到的相关信息，请在回答时参考这些内容：\n\n${ragContext}\n\n---\n注意：以上是你的记忆片段，请自然地融入对话中，不要明确提及"记忆"或"检索"等词。`
+                    };
+
+                    // 在第一个用户消息前插入RAG上下文（在系统消息之后）
+                    const systemMsgIndex = cleanedMessages.findIndex(m => m.role === 'system');
+                    const insertIndex = systemMsgIndex >= 0 ? systemMsgIndex + 1 : 0;
+                    cleanedMessages.splice(insertIndex, 0, ragSystemMessage);
+                }
+            }
+        }
 
         const requestBody = {
             model: this.model,
@@ -614,6 +647,80 @@ class LLMClient {
             this.temperature = newConfig.llm.temperature !== undefined ? newConfig.llm.temperature : this.temperature;  // 🔥 支持temperature更新
             this.temperatureEnabled = newConfig.llm.temperature_enabled !== undefined ? newConfig.llm.temperature_enabled : this.temperatureEnabled;
             logToTerminal('info', 'LLM客户端配置已更新');
+        }
+    }
+
+    /**
+     * 查询RAG知识库
+     * @param {string} question - 用户的问题
+     * @returns {Promise<Array>} 相关知识段落数组
+     */
+    async queryRAG(question) {
+        if (!this.ragEnabled) {
+            return [];
+        }
+
+        try {
+            const url = new URL(`${this.ragUrl}/ask`);
+            const postData = JSON.stringify({
+                question: question,
+                top_k: this.ragTopK
+            });
+
+            const options = {
+                hostname: url.hostname,
+                port: url.port || (url.protocol === 'https:' ? 443 : 80),
+                path: url.pathname,
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Content-Length': Buffer.byteLength(postData)
+                }
+            };
+
+            return new Promise((resolve, reject) => {
+                const protocol = url.protocol === 'https:' ? https : http;
+                const req = protocol.request(options, (res) => {
+                    let data = '';
+
+                    res.on('data', (chunk) => {
+                        data += chunk;
+                    });
+
+                    res.on('end', () => {
+                        if (res.statusCode !== 200) {
+                            logToTerminal('warn', `⚠️ RAG查询失败: ${res.statusCode}`);
+                            resolve([]);
+                            return;
+                        }
+
+                        try {
+                            const result = JSON.parse(data);
+                            const passages = result.relevant_passages || [];
+
+                            if (passages.length > 0) {
+                                logToTerminal('info', `📚 RAG找到 ${passages.length} 个相关记忆 (相似度: ${passages[0].similarity.toFixed(3)})`);
+                            }
+
+                            resolve(passages);
+                        } catch (parseError) {
+                            logToTerminal('warn', `⚠️ RAG响应解析失败: ${parseError.message}`);
+                            resolve([]);
+                        }
+                    });
+                });
+
+                req.on('error', (error) => {
+                    logToTerminal('warn', `⚠️ RAG服务不可用: ${error.message}`);
+                    resolve([]);
+                });
+
+                req.write(postData);
+                req.end();
+            });
+        } catch (error) {
+            logToTerminal('warn', `⚠️ RAG查询异常: ${error.message}`);
+            return [];
         }
     }
 

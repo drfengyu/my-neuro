@@ -67,26 +67,40 @@ class KnowledgeBaseHandler(FileSystemEventHandler):
             reload_knowledge_base()
 
 
-def load_knowledge_base(file_path="../live-2d/AI记录室/记忆库.txt"):
-    """加载知识库文件 - 使用连续横线分割段落"""
+def load_knowledge_base(dir_path="../AI记录室"):
+    """加载知识库目录下所有txt文件 - 使用连续横线分割段落"""
     try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-
         paragraphs = []
 
-        # 使用正则表达式匹配10个以上连续的横线
-        # 匹配10个或更多连续的横线（可能前后有空格）
-        separator_pattern = r'\s*-{10,}\s*'
+        # 遍历目录下所有txt文件
+        import glob
+        txt_files = glob.glob(os.path.join(dir_path, "*.txt"))
 
-        # 按分隔符分割内容
-        sections = re.split(separator_pattern, content)
+        if not txt_files:
+            print(f"警告: {dir_path} 目录下没有找到txt文件")
+            return []
 
-        for section in sections:
-            section = section.strip()
-            # 过滤掉空内容和过短的内容
-            if section and len(section) > 10:
-                paragraphs.append(section)
+        print(f"找到 {len(txt_files)} 个知识库文件")
+
+        for file_path in txt_files:
+            print(f"  加载: {os.path.basename(file_path)}")
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+
+                # 使用正则表达式匹配4个以上连续的横线
+                separator_pattern = r'\s*-{4,}\s*'
+
+                # 按分隔符分割内容
+                sections = re.split(separator_pattern, content)
+
+                for section in sections:
+                    section = section.strip()
+                    # 过滤掉空内容和过短的内容
+                    if section and len(section) > 10:
+                        paragraphs.append(section)
+            except Exception as e:
+                print(f"  加载 {os.path.basename(file_path)} 失败: {e}")
 
         print(f"知识库加载完成，共 {len(paragraphs)} 个段落")
         return paragraphs
@@ -123,8 +137,14 @@ async def startup_event():
 
     # 加载模型
     model = SentenceTransformer("./rag-hub")
-    model = model.to('cuda')
-    print("模型加载完成，使用GPU")
+
+    # 自动检测是否有可用的CUDA
+    if torch.cuda.is_available():
+        model = model.to('cuda')
+        print("模型加载完成，使用GPU")
+    else:
+        model = model.to('cpu')
+        print("模型加载完成，使用CPU")
 
     # 加载知识库
     knowledge_base = load_knowledge_base()
@@ -136,7 +156,7 @@ async def startup_event():
     # 启动文件监控
     event_handler = KnowledgeBaseHandler()
     observer = Observer()
-    observer.schedule(event_handler, "../live-2d/AI记录室", recursive=False)
+    observer.schedule(event_handler, "../AI记录室", recursive=False)
     observer.start()
     print("文件监控启动完成")
 
