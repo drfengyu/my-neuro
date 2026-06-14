@@ -44,13 +44,13 @@ class LLMClient {
                 if (ragResults.length > 0) {
                     // 构建RAG上下文
                     const ragContext = ragResults.map((passage, idx) =>
-                        `[记忆${idx + 1}] ${passage.content}`
+                        `${passage.content}`
                     ).join('\n\n');
 
                     // 将RAG上下文添加到系统消息中
                     const ragSystemMessage = {
                         role: 'system',
-                        content: `以下是从你的长期记忆中检索到的相关信息，请在回答时参考这些内容：\n\n${ragContext}\n\n---\n注意：以上是你的记忆片段，请自然地融入对话中，不要明确提及"记忆"或"检索"等词。`
+                        content: `【重要背景信息】\n以下是关于用户和项目的真实信息，你必须基于这些信息回答问题：\n\n${ragContext}\n\n---\n你可以用傲娇的方式表达，但必须使用上述信息。例如被问名字时，你知道答案是Drfen，可以说"啊？连自己叫什么都不记得了？你不是Drfen吗，真是健忘啊。"`
                     };
 
                     // 在第一个用户消息前插入RAG上下文（在系统消息之后）
@@ -120,7 +120,7 @@ class LLMClient {
                     'Authorization': `Bearer ${this.apiKey}`
                     // 移除了 anthropic-version 和 x-api-key 以兼容更多API网关
                 },
-                timeout: 60000
+                timeout: 180000  // 增加到3分钟（180秒）
             };
 
             const responseData = await new Promise((resolve, reject) => {
@@ -168,7 +168,12 @@ class LLMClient {
                         } else {
                             try {
                                 // 🔥 流式模式：返回累积的完整内容
-                                if (stream && fullContent) {
+                                if (stream) {
+                                    if (!fullContent || fullContent.length === 0) {
+                                        logToTerminal('warn', `⚠️ 流式响应完成但内容为空`);
+                                        reject(new Error('API返回空响应'));
+                                        return;
+                                    }
                                     logToTerminal('info', `✅ 流式响应完成，返回累积内容：${fullContent.substring(0, 50)}...`);
                                     resolve({
                                         choices: [{
