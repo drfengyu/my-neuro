@@ -262,8 +262,10 @@ class EnhancedTextProcessor {
         logToTerminal('info', `🔊 addStreamingText 收到: "${text}", volcEnabled=${this.requestHandler.volcTtsEnabled}`);
 
         if (this.requestHandler.volcTtsEnabled) {
+            logToTerminal('info', `🌐 准备使用火山引擎流式TTS`);
             // 字节流式路径：用 Promise 链保证 open → sendToken 严格串行
             if (!this.volcSession) {
+                logToTerminal('info', `🆕 创建新的VolcengineStreamingSession`);
                 this.volcSession = new VolcengineStreamingSession(this.config, {
                     onMouthValue:     this._onMouthValue,
                     onStartCallback:  this._onStartCallback,
@@ -273,16 +275,28 @@ class EnhancedTextProcessor {
                     expressionMapper: this._expressionMapper,
                 });
                 // 链头：先建立连接
-                this._volcChain = this.volcSession.open().catch((err) => {
+                logToTerminal('info', `📡 开始建立WebSocket连接到火山引擎`);
+                this._volcChain = this.volcSession.open().then(() => {
+                    logToTerminal('info', `✅ 火山引擎WebSocket连接成功`);
+                }).catch((err) => {
                     console.error('字节TTS连接失败:', err);
+                    logToTerminal('error', `❌ 火山引擎连接失败: ${err.message}`);
                     this.volcSession = null;
                 });
+            } else {
+                logToTerminal('info', `♻️  使用现有的VolcengineStreamingSession`);
             }
             // 每个 token 都追加在链尾，保证顺序
             const session = this.volcSession;
             this._volcChain = this._volcChain.then(() => {
-                if (session && !session.stopped) return session.sendToken(text);
-            }).catch((err) => console.error('字节TTS sendToken失败:', err));
+                if (session && !session.stopped) {
+                    logToTerminal('info', `📤 发送token到火山引擎: "${text}"`);
+                    return session.sendToken(text);
+                }
+            }).catch((err) => {
+                console.error('字节TTS sendToken失败:', err);
+                logToTerminal('error', `❌ sendToken失败: ${err.message}`);
+            });
         } else {
             // 原有分段路径
             this.requestHandler.segmentStreamingText(text, this.textSegmentQueue);
@@ -300,10 +314,17 @@ class EnhancedTextProcessor {
         }
 
         if (this.requestHandler.volcTtsEnabled) {
+            logToTerminal('info', `🏁 火山引擎TTS: 调用finalize()`);
             const session = this.volcSession;
             this._volcChain = this._volcChain.then(() => {
-                if (session && !session.stopped) return session.finalize();
-            }).catch((err) => console.error('字节TTS finalize失败:', err));
+                if (session && !session.stopped) {
+                    logToTerminal('info', `🎬 发送finalize到火山引擎`);
+                    return session.finalize();
+                }
+            }).catch((err) => {
+                console.error('字节TTS finalize失败:', err);
+                logToTerminal('error', `❌ finalize失败: ${err.message}`);
+            });
         } else {
             this.requestHandler.finalizeSegmentation(this.textSegmentQueue);
         }

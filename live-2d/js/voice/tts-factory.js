@@ -7,7 +7,11 @@ const { Events } = require('../core/events.js');
 class TTSFactory {
     // 创建TTS处理器
     static create(config, modelController, voiceChat, uiController, onBarrageTTSComplete) {
-        const ttsEnabled = config.tts?.enabled !== false;
+        // 检查本地TTS或云端TTS是否启用
+        const localTtsEnabled = config.tts?.enabled !== false;
+        const cloudTtsEnabled = config.cloud?.volcengine_tts?.enabled || config.cloud?.aliyun_tts?.enabled || config.cloud?.tts?.enabled;
+        const ttsEnabled = localTtsEnabled || cloudTtsEnabled;
+
         // ASR启用：本地ASR或百度流式ASR任一启用即可
         const localASREnabled = config.asr?.enabled !== false;
         const baiduASREnabled = config.cloud?.baidu_asr?.enabled === true;

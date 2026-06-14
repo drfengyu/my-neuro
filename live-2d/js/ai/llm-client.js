@@ -84,8 +84,8 @@ class LLMClient {
                 headers: {
                     'Content-Type': 'application/json',
                     'Content-Length': Buffer.byteLength(postData),
-                    'Authorization': `Bearer ${this.apiKey}`,
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+                    'Authorization': `Bearer ${this.apiKey}`
+                    // 移除了 anthropic-version 和 x-api-key 以兼容更多API网关
                 },
                 timeout: 60000
             };
@@ -425,7 +425,7 @@ class LLMClient {
 
     /**
      * 过滤模型思考/推理内容，防止思考过程被TTS播放或显示为字幕
-     * 支持 Gemini、DeepSeek 等模型的多种思考格式
+     * 支持 Gemini、DeepSeek、Qwen 等模型的多种思考格式
      * @param {string} text - 原始文本
      * @returns {string} 过滤后的文本
      */
@@ -440,6 +440,19 @@ class LLMClient {
         // 过滤 <thinking>...</thinking> 块
         filtered = filtered.replace(/<thinking>[\s\S]*?<\/thinking>/gi, '');
 
+        // 过滤 Qwen 的 <thoughts>...</thoughts> 块
+        filtered = filtered.replace(/<thoughts>[\s\S]*?<\/thoughts>/gi, '');
+
+        // 过滤包含"根据"、"分析"等关键词的长段落（Qwen推理模式）
+        // 只在段落很长且包含多个推理关键词时才过滤
+        const lines = filtered.split('\n');
+        const filteredLines = lines.filter(line => {
+            const thinkingKeywords = ['根据', '分析', '考虑到', '因此可以', '综合以上', '推理', '判断'];
+            const hasMultipleKeywords = thinkingKeywords.filter(kw => line.includes(kw)).length >= 2;
+            return !(hasMultipleKeywords && line.length > 50);
+        });
+        filtered = filteredLines.join('\n');
+
         // 过滤 Gemini 中文思考格式：整段以"思考"开头（独占一行）的内容
         // 仅在整段内容都是思考时才清除（避免误杀正常对话中的"思考"二字）
         if (/^思考\s*\n/.test(filtered)) {
@@ -449,6 +462,16 @@ class LLMClient {
         // 过滤 Gemini 英文思考格式：整段以"Thinking"开头（独占一行）
         if (/^Thinking\s*\n/i.test(filtered)) {
             filtered = '';
+        }
+
+        // 过滤以"让我"开头的推理过程（Qwen常见模式）
+        if (/^让我[分析思考推理]/.test(filtered)) {
+            // 找到第一个非推理句子
+            const sentences = filtered.split(/[。！？\n]/);
+            const nonThinkingSentences = sentences.filter(s =>
+                s.trim() && !(/^(让我|首先|其次|然后|接下来|综上|因此)[分析思考推理]/.test(s.trim()))
+            );
+            filtered = nonThinkingSentences.join('。');
         }
 
         return filtered.trim();

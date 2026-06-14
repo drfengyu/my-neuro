@@ -50,12 +50,14 @@ try {
     logToTerminal('info', '配置文件加载成功');
 
     // 检查TTS和ASR配置
-    const ttsEnabled = config.tts?.enabled !== false;
+    const localTtsEnabled = config.tts?.enabled !== false;
+    const cloudTtsEnabled = config.cloud?.volcengine_tts?.enabled || config.cloud?.aliyun_tts?.enabled || config.cloud?.tts?.enabled;
+    const ttsEnabled = localTtsEnabled || cloudTtsEnabled;
     const asrEnabled = config.asr?.enabled !== false;
 
-    console.log(`TTS模块: ${ttsEnabled ? '启用' : '禁用'}`);
+    console.log(`TTS模块: ${ttsEnabled ? '启用' : '禁用'} (本地:${localTtsEnabled}, 云端:${cloudTtsEnabled})`);
     console.log(`ASR模块: ${asrEnabled ? '启用' : '禁用'}`);
-    logToTerminal('info', `TTS模块: ${ttsEnabled ? '启用' : '禁用'}`);
+    logToTerminal('info', `TTS模块: ${ttsEnabled ? '启用' : '禁用'} (本地:${localTtsEnabled}, 云端:${cloudTtsEnabled})`);
     logToTerminal('info', `ASR模块: ${asrEnabled ? '启用' : '禁用'}`);
 
 } catch (error) {
